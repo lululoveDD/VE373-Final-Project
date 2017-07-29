@@ -12,7 +12,6 @@
 //		Should make sure AVDD is 3.3V, AVSS is 0V, checked!
 //		Should make sure VR- (the negative input) is AVss (=0V) checked!
 // 
-#include "LCD.h"
 #include <plib.h>
 #include "p32xxxx.h"
 
