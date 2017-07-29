@@ -1,0 +1,14 @@
+voltage in: 3.3V
+
+电阻：117 kOhm
+
+voltage range: 0.56 – 1.09 (instance 1.1.2) [zhi-wan]
+
+电阻：50 kOhm
+
+voltage range: 1.07 – 1.73 (instance 1.8) [zhi-wan]
+
+电阻：10 kOhm
+
+voltage range: 2.335 – 2.82 (instance 2.9) [zhi-wan]
+
