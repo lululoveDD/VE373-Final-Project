@@ -1,5 +1,6 @@
 #include <p32xxxx.h>
 #include <plib.h>
+#include "FlexSensor.c"
 
 //#define BRATE 51 // 38400 Bd (BREGH=1)
 #define BRATE 103 // 9600 Bd (BREGH=1)
@@ -34,13 +35,6 @@ void initUART(void){
 	asm("ei");
 }
 
-void initIntGlobal() {
-	DDPCONbits.JTAGEN = 0;
-  	TRISFbits.TRISF2 = 1;	// RF2/U1RX/J11-41/input
-	TRISFbits.TRISF3 = 0;	// RF3/U1TX/J11-43/output
-	INTCONbits.MVEC = 1;	// Enable multiple vector interrupt
-	asm("ei"); 				// Enable all interrupts
-}
 
 void initCN(){
 	asm("di");
