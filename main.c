@@ -11,7 +11,6 @@ int lrClick(double inVol);
 void flexSensor(void);
 // convert int to char
 char in2char(int n);
-
 /* global varialbe declaration */
 int portID = 0;					// 0 stands for AN12(index finger) just being sampled
 								// 1 stands for AN13(middle finger) just being sampled
@@ -34,6 +33,13 @@ void UART_RXISR(void)
 	//IFS0bits.U2RXIF = 0;
 }
 
+void BT_send(char c){
+	while (!IFS0bits.U1TXIF) {};
+	U1STAbits.UTXEN = 1;
+	U1TXREG = c;
+	IFS0bits.U1TXIF = 0;
+}
+
 /*----------------------------------------------
 	UART config
 	U1 for BlueTooth
@@ -48,7 +54,11 @@ void initUART(void){
 	U1BRG = BRATE_BT;
 	U1MODEbits.BRGH = 1;
 	U1STA = 0;
-	//U1STAbits.URXEN = 1;
+	U1STASET = 0x8000;
+
+	IFS0bits.U1TXIF = 0;
+	IEC0bits.U1TXIE = 1;
+	U1STAbits.UTXEN = 1;
 	/*
 	U2BRG = BRATE_AS;
 	U2MODEbits.BRGH = 1;
@@ -86,21 +96,7 @@ main(){
 
 	// infinite loop
 	while(1) {
-		//flexSensor();
-		U1STAbits.UTXEN = 1;
-		U1TXREG = 'H';
-		U1STAbits.UTXEN = 1;
-		U1TXREG = 'E';
-		U1STAbits.UTXEN = 1;
-		U1TXREG = 'L';
-		U1STAbits.UTXEN = 1;
-		U1TXREG = 'L';
-		U1STAbits.UTXEN = 1;
-		U1TXREG = 'O';
-		U1STAbits.UTXEN = 1;
-		U1TXREG = '\n';
-		//
-		//
+		flexSensor();
 	}
 }
 
@@ -173,12 +169,11 @@ void findDoubleVol(int IntVoltage) {
 
 	vol = a + b * 0.1 + c * 0.01;
 
-	U1STAbits.UTXEN = 1;
-	U1TXREG = first;
-	U1TXREG = '.';
-	U1TXREG = second;
-	U1TXREG = third;
-	U1TXREG = '\n';
+	BT_send(first);
+	BT_send('.');
+	BT_send(second);
+	BT_send(third);
+	BT_send('\n');
 }
 
 // click or not?
