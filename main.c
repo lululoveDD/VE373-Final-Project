@@ -6,20 +6,19 @@
 
 /* Function prototypes */
 void ADC_init (void);
+void BT_send(char c);
+void initUART(void);
+void initIntGlobal();
 void findDoubleVol(int IntVoltage, int indic__);
 int lrClick(double inVol);
 void flexSensor(void);
 
 /* global varialbe declaration */
-//int portID = 0;				// 0 stands for AN12(index finger) just being sampled
-								// 1 stands for AN13(middle finger) just being sampled
 int ADCValueMiddle = 0;			// for temporary storage of the adc value for middle finger
 int ADCValueIndex = 0;			// for temporary storage of the adc value for index finger
 int totalIndex = 0;				// total accumulated index finger voltage
 int totalMiddle = 0;			// total accumulated middle&fourth finger voltage
 int i = 0;						// indicator for finger voltage
-//int iIndex = 0;				// indicator for index finger voltage
-//int iMiddle = 0;				// indicator for middle&fourth finger voltage
 double volIndex = 0;			// the current voltage in double
 double volMiddle = 0;			// the current voltage in double
 double threHoVolFlexSen = 1.6; 	// set the threshold voltage for flex sensor here
@@ -34,7 +33,25 @@ void UART_RXISR(void)
 	//IFS0bits.U2RXIF = 0;
 }
 
-void BT_send(char c){
+/* main */
+main() {
+	OSCSetPBDIV (OSC_PB_DIV_1); 		// configure PBDIV so PBCLK = SYSCLK 8 MHz ??
+	initIntGlobal();			
+	initUART();
+	ADC_init();							// initialize the ADC module
+	/*
+		initGyro();
+	*/
+
+	// infinite loop
+	while(1) {
+		flexSensor();
+	}
+}
+/* end of main */ 
+
+// send a char via bluetooth
+void BT_send(char c) {
 	while (!IFS0bits.U1TXIF) {};
 	U1STAbits.UTXEN = 1;
 	U1TXREG = c;
@@ -49,7 +66,7 @@ void BT_send(char c){
 		9600Bd, 8-bit data, no parity, 1 Stop bit
 		Interrupt 
 -----------------------------------------------*/
-void initUART(void){
+void initUART(void) {
 	asm("di");
 
 	U1BRG = BRATE_BT;
@@ -76,6 +93,7 @@ void initUART(void){
 	asm("ei");
 }
 
+// intialize the global configurations
 void initIntGlobal() {
 	DDPCONbits.JTAGEN = 0;
   	TRISFbits.TRISF2 = 1;	// RF2/U1RX/J11-41/input
@@ -84,21 +102,6 @@ void initIntGlobal() {
 	TRISFbits.TRISF5 = 0;	// RF3/U2TX/J11-48/output
 	INTCONbits.MVEC = 1;	// Enable multiple vector interrupt
 	asm("ei"); 				// Enable all interrupts
-}
-
-main(){
-	OSCSetPBDIV (OSC_PB_DIV_1); 		// configure PBDIV so PBCLK = SYSCLK 8 MHz ??
-	initIntGlobal();			
-	initUART();
-	ADC_init();							// initialize the ADC module
-	/*
-		initGyro();
-	*/
-
-	// infinite loop
-	while(1) {
-		flexSensor();
-	}
 }
 
 // initialize the ADC module
@@ -133,13 +136,9 @@ void ADC_init (void) {
 	TMR3= 0x0000;
 	PR3= 0xC350;				// 50 ms (50000 cycles)
 	T3CON = 0x0040;				// 1 MHz (prescale set to 1:8) [now 1:64 should recalculate]
-	//IPC3SET = 0x0000001C;		// Interrupt priority level 7, Subpriority level 0
-	//IFS0CLR = 0x00001000;		// Clear timer interrupt flag
-	//IEC0SET = 0x00001000;		// Enable Timer3 interrupt
 
 	// configure ADC interrupt
 								// AD1IP<2:0> bits IPC6<28:26> :: AD1IS<1:0> bits IPC6<25:24>
-	//IPC6SET = 0x18000000;		// Interrupt priority level 6, Subpriority level 0
 	IFS1CLR = 0x0002;			// Clear ADC conversion interrupt
 	IEC1SET = 0x0002;			// Enable ADC interrupts
 
@@ -147,42 +146,6 @@ void ADC_init (void) {
 	AD1CON1SET = 0x8000;		// turn ON the ADC
 	AD1CON1SET = 0x0004;		// start auto sampling every 50 mSecs
 								// repeat continuously
-
-	// ******************************************************************** //
-	// ******************************************************************** //
-	// ******************************************************************** //
-	/*
-	// configure of Lab_5
-	AD1CON1 = 0x2040;			/* Configure: No operation in IDLE mode, 
-									integer 16-bit format,
-									timer3 period match, normal operation,
-									SSRC bit = 010 implies TMR3 period match --
-									ends sampling and starts converting. */
-	/*
-	AD1CON2 = 0x0000;			/* Configure ADC voltage reference
-								   and buffer fill modes.
-								   VREF from AVDD (should be 3.3V) and AVSS (0V),
-								   Inputs are not scanned, Interrupt every sample */
-	/*
-	AD1CON3 = 0x1FFF;			// Sample time = 31 TAD = 31 * 512 * TPB (~504Hz)
-	/*
-	AD1CHS = 0x000C0000;		// Connect RB12/AN12 as CH0 positive input
-								// negative input is VR-=AVss (make sure it is zero)
-	AD1CSSL = 0;				// no scan
-
-	TMR3= 0x0000;
-	PR3= 0xC350;				// 50 ms (50000 cycles)
-	T3CON = 0x0030;				// 1 MHz, no prescale. start the timer
-	/*
-	IFS1CLR = 0x0002;			/* Clear ADC conversion interrupt */
-	/*
-	IEC1SET = 0x0002;			// Enable ADC interrupts
-	
-	T3CONSET = 0x8000;			// turn on the TMR3
-	AD1CON1SET = 0x8000;		// turn ON the ADC
-	AD1CON1SET = 0x0004;		// start auto sampling every 50 mSecs
-								// repeat continuously
-	*/
 }
 
 // convert the voltage measured from int to double.
