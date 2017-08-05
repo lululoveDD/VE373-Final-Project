@@ -6,20 +6,22 @@
 
 /* Function prototypes */
 void ADC_init (void);
-void findDoubleVol(int IntVoltage);
+void findDoubleVol(int IntVoltage, int indic__);
 int lrClick(double inVol);
 void flexSensor(void);
-// convert int to char
-char in2char(int n);
+
 /* global varialbe declaration */
-int portID = 0;					// 0 stands for AN12(index finger) just being sampled
+//int portID = 0;					// 0 stands for AN12(index finger) just being sampled
 								// 1 stands for AN13(middle finger) just being sampled
-int ADCValue = 0;				// for temporary storage
+int ADCValueMiddle = 0;			// for temporary storage of the adc value for middle finger
+int ADCValueIndex = 0;			// for temporary storage of the adc value for index finger
 int totalIndex = 0;				// total accumulated index finger voltage
 int totalMiddle = 0;			// total accumulated middle&fourth finger voltage
-int iIndex = 0;					// indicator for index finger voltage
-int iMiddle = 0;				// indicator for middle&fourth finger voltage
-double vol = 0;					// the current voltage in double
+int i = 0;						// indicator for finger voltage
+//int iIndex = 0;				// indicator for index finger voltage
+//int iMiddle = 0;				// indicator for middle&fourth finger voltage
+double volIndex = 0;			// the current voltage in double
+double volMiddle = 0;			// the current voltage in double
 double threHoVolFlexSen = 1.3; 	// set the threshold voltage for flex sensor here
 
 #pragma interrupt UART_RXISR ipl6 vector 24
@@ -114,15 +116,15 @@ void ADC_init (void) {
 									SSRC bit = 010 implies TMR3 period match --
 									ends sampling and starts converting. */
 
-	AD1CON2 = 0x0400;			/* Configure ADC voltage reference
+	AD1CON2 = 0x0404;			/* Configure ADC voltage reference
 								   and buffer fill modes.
 								   VREF from AVDD (3.3V) and AVSS (0V),
-								   Inputs scanned for MUX-A, Interrupt every sample 
+								   Inputs scanned for MUX-A, Interrupt every 2th sample/convert 
 								   one 16-word buffer, always use MUX-A */
 
 	AD1CON3 = 0x1FFF;			// Sample time = 31 TAD = 31 * 512 * TPB (~504Hz)
 
-	AD1CHS = 0x000C0000;		/* Connect RB12/AN12 as CH0 positive input,
+	AD1CHS = 0;					/* Connect RB12/AN12 as CH0 positive input,
 									should be ignored as scanning is enabled */
 								// negative input is VR- = AVss (0V)
 
@@ -185,15 +187,8 @@ void ADC_init (void) {
 	*/
 }
 
-//
-char in2char(int n) {
-	char c; 
-	c = n+48;
- 	return c;
-}
-
 // convert the voltage measured from int to double.
-void findDoubleVol(int IntVoltage) {
+void findDoubleVol(int IntVoltage, int indic__) {
 	int a=0, b=0, c=0;
 	unsigned char first, second, third;
 
@@ -201,22 +196,17 @@ void findDoubleVol(int IntVoltage) {
 	b = (IntVoltage*33)/1024 -10 * a; 
 	c = (IntVoltage*330)/1024 - 100 * a - 10 * b;
 
-	first=in2char(a); 
-	second=in2char(b); 
-	third=in2char(c);
-
-	vol = a + b * 0.1 + c * 0.01;
-
-	BT_send(first);
-	BT_send('.');
-	BT_send(second);
-	BT_send(third);
-	BT_send('\n');
+	if ( indic__ == 1 ) {
+		volIndex = a + b * 0.1 + c * 0.01;
+	}
+	else {
+		volMiddle = a + b * 0.1 + c * 0.01;
+	}
 }
 
 // click or not?
-int lrClick(double inVol) {
-	if ( vol > threHoVolFlexSen )
+int lrClick(double __inVol) {
+	if ( __inVol > threHoVolFlexSen )
 		return 1;		// CLICK !!
 	else
 		return 0;		// NO CLICK !!
@@ -225,47 +215,30 @@ int lrClick(double inVol) {
 // collect and analyze flex sensors data
 void flexSensor(void) {
 	while (!IFS1 & 0x0002) {};			// conversion done?
+	AD1CON1bits.ASAM = 0;				// stop auto sampling
+	ADCValueIndex = ADC1BUF0;			// yes then get the first ADC value::AN12
+	ADCValueMiddle = ADC1BUF1;			// yes then get the second ADC value::AN13
+	AD1CON1bits.ASAM = 1;				// start auto sampling
 	IFS1CLR = 0x0002;					// clear AD1IF
-	ADCValue = ADC1BUF0;				// yes then get first ADC value
 
-	if ( portID == 0 ) { // index finger just being sampled
-		totalIndex = totalIndex + ADCValue;
-		iIndex++;
-		portID++;
-	}
-	else { // index finger just being sampled
-		totalMiddle = totalMiddle + ADCValue;
-		iMiddle++;
-		portID--;
-	}
+	totalIndex = totalIndex + ADCValueIndex;
+	totalMiddle = totalMiddle + ADCValueMiddle;
+	i++;
+	if ( i == 3 ) { 					// convert for 3 times to average
+		findDoubleVol(totalIndex/3, 1);
+		findDoubleVol(totalMiddle/3, 0);
 
-	if ( iIndex == 3 ) { 				// convert for 3 times to average
-		findDoubleVol(totalIndex/3);
-		if ( lrClick(vol) == 1 ) {
-			// click enabled
-			//PORTDbits.RD0 = 1;
-			//int i = 0;
-			//while ( i != 4000000) {i++;}
-			//PORTDbits.RD0 = 0;
-			// TODO::send to RN41
-		}
-		vol = 0; 						// for debug
-		iIndex = 0;
+		if ( lrClick(volIndex) == 1 )	// index finger click enabled
+			BT_send('I');
+		
+		if ( lrClick(volMiddle) == 1 )	// middle finger click enabled
+			BT_send('M');
+	
+		i = 0;
+		volMiddle = 0;
+		volIndex = 0;
 		totalIndex = 0;
-	}
-
-	if ( iMiddle == 3 ) {				// convert for 3 times to average
-		findDoubleVol(totalMiddle/3);
-		if ( lrClick(vol) == 1 ) {
-			// click enabled
-			//PORTDbits.RD1 = 1;
-			//int i = 0;
-			//while ( i != 4000000) {i++;}
-			//PORTDbits.RD1 = 0;
-			// TODO::send to RN41
-		}
-		vol = 0; 						// for debug
-		iMiddle = 0;
 		totalMiddle = 0;
 	}
+
 }
