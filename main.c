@@ -11,7 +11,7 @@ int lrClick(double inVol);
 void flexSensor(void);
 
 /* global varialbe declaration */
-//int portID = 0;					// 0 stands for AN12(index finger) just being sampled
+//int portID = 0;				// 0 stands for AN12(index finger) just being sampled
 								// 1 stands for AN13(middle finger) just being sampled
 int ADCValueMiddle = 0;			// for temporary storage of the adc value for middle finger
 int ADCValueIndex = 0;			// for temporary storage of the adc value for index finger
@@ -22,12 +22,11 @@ int i = 0;						// indicator for finger voltage
 //int iMiddle = 0;				// indicator for middle&fourth finger voltage
 double volIndex = 0;			// the current voltage in double
 double volMiddle = 0;			// the current voltage in double
-double threHoVolFlexSen = 1.3; 	// set the threshold voltage for flex sensor here
+double threHoVolFlexSen = 1.6; 	// set the threshold voltage for flex sensor here
 
 #pragma interrupt UART_RXISR ipl6 vector 24
 void UART_RXISR(void)
 {
-
 	/*
 		Dealing with the data
 	*/
@@ -98,7 +97,6 @@ main(){
 
 	// infinite loop
 	while(1) {
-		BT_send('A');
 		flexSensor();
 	}
 }
@@ -134,7 +132,7 @@ void ADC_init (void) {
 	// configure timer 3
 	TMR3= 0x0000;
 	PR3= 0xC350;				// 50 ms (50000 cycles)
-	T3CON = 0x0030;				// 1 MHz (prescale set to 1:8)
+	T3CON = 0x0040;				// 1 MHz (prescale set to 1:8) [now 1:64 should recalculate]
 	//IPC3SET = 0x0000001C;		// Interrupt priority level 7, Subpriority level 0
 	//IFS0CLR = 0x00001000;		// Clear timer interrupt flag
 	//IEC0SET = 0x00001000;		// Enable Timer3 interrupt
@@ -190,7 +188,6 @@ void ADC_init (void) {
 // convert the voltage measured from int to double.
 void findDoubleVol(int IntVoltage, int indic__) {
 	int a=0, b=0, c=0;
-	unsigned char first, second, third;
 
 	a = (IntVoltage*33)/10240;
 	b = (IntVoltage*33)/1024 -10 * a; 
@@ -230,9 +227,15 @@ void flexSensor(void) {
 
 		if ( lrClick(volIndex) == 1 )	// index finger click enabled
 			BT_send('I');
+		else
+			BT_send('J');
 		
 		if ( lrClick(volMiddle) == 1 )	// middle finger click enabled
 			BT_send('M');
+		else
+			BT_send('K');
+
+		BT_send('\n');
 	
 		i = 0;
 		volMiddle = 0;
