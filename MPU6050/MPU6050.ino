@@ -1,47 +1,28 @@
-#include <SoftwareSerial.h> 
+/*This code is used for connecting arduino to serial mpu6050 module, and test in arduino uno R3 board.
+connect map:
+arduino   mpu6050 module
+VCC    5v/3.3v
+TX     RX<-0
+TX     TX->1
+GND    GND
+note: 
+because arduino download and mpu6050 are using the same serial port, you need to un-connect 6050 module when you want to download program to arduino.
+ Created 14 Nov 2013
+ by Zhaowen
+ 
+ serial mpu6050 module can be found in the link below:
+ http://item.taobao.com/item.htm?id=19785706431
+ */
 
 unsigned char Re_buf[11],counter=0;
 unsigned char sign=0;
 float a[3],w[3],angle[3],T;
-
-// 定義連接藍牙模組的序列埠
-SoftwareSerial BT(8, 9); // 接收腳, 傳送腳
-char val;  // 儲存接收資料的變數
-
 void setup() {
-  Serial.begin(9600);   // 與電腦序列埠連線
-  Serial.println("BT is ready!");
-  // 設定藍牙模組的連線速率
-  // 如果是HC-05，請改成38400
-  BT.begin(115200);
+  // initialize serial:
+  Serial.begin(115200);
 }
 
 void loop() {
-  // 若收到「序列埠監控視窗」的資料，則送到藍牙模組
-  if (Serial.available()) {
-    Serial.print('A');
-    val = Serial.read();
-    BT.print(val);
-  }
-
-  // 若收到藍牙模組的資料，則送到「序列埠監控視窗」
-  if (BT.available()) {
-    
-    Re_buf[counter]=(unsigned char)BT.read();
-    if(counter==0&&Re_buf[0]!=0x55) return;      //第0号数据不是帧头              
-    counter++;       
-    if(counter==11)             //接收到11个数据
-    {    
-       counter=0;               //重新赋值，准备下一帧数据的接收 
-       sign=1;
-    }  
-    /*
-    val = BT.read();
-    //unsigned char tmp = val;
-    Serial.print(val);
-    //Serial.print("\n");
-    */ 
-  }
   if(sign)
   {  
      sign=0;
@@ -83,5 +64,24 @@ void loop() {
                 break;
 	} 
     }
+  } 
+}
+
+void serialEvent() {
+  while (Serial.available()) {
+    
+    //char inChar = (char)Serial.read(); Serial.print(inChar); //Output Original Data, use this code 
+  
+    Re_buf[counter]=(unsigned char)Serial.read();
+    if(counter==0&&Re_buf[0]!=0x55) return;      //第0号数据不是帧头              
+    counter++;       
+    if(counter==11)             //接收到11个数据
+    {    
+       counter=0;               //重新赋值，准备下一帧数据的接收 
+       sign=1;
+    }
+      
   }
 }
+
+

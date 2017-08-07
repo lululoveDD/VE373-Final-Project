@@ -3,17 +3,27 @@
 
 #define BRATE_BT 103 // 9600 Bd (BREGH=1)
 #define BRATE_AS 103 // 9600 Bd (BREGH=1)
+#define fabs(x) x>=0?x:-x
+#define MAX_ANGLE 80
+#define LEVEL_ANGLE (MAX_ANGLE/4)
 
 /* Function prototypes */
-void ADC_init (void);
+void vibration_init(void);
+void Timer4_init(void);
+void vibration_go(void);
 void BT_send(char c);
 void initUART(void);
-void initIntGlobal();
+void initIntGlobal(void);
+void ADC_init (void);
 void findDoubleVol(int IntVoltage, int indic__);
 int lrClick(double inVol);
 void flexSensor(void);
+void gyroSensor(void);
+void bitSet(unsigned char* Reg, int bitNo){ *Reg |= (1<<bitNo); }
+void bitClr(unsigned char* Reg, int bitNo){ if (*Reg & (1<<bitNo)) *Reg ^= (1<<bitNo); }
+/* End of Function Prototypes */
 
-/* global varialbe declaration */
+/* Global Varialbe Declaration */
 int ADCValueMiddle = 0;			// for temporary storage of the adc value for middle finger
 int ADCValueIndex = 0;			// for temporary storage of the adc value for index finger
 int totalIndex = 0;				// total accumulated index finger voltage
@@ -21,16 +31,35 @@ int totalMiddle = 0;			// total accumulated middle&fourth finger voltage
 int i = 0;						// indicator for finger voltage
 double volIndex = 0;			// the current voltage in double
 double volMiddle = 0;			// the current voltage in double
-double threHoVolFlexSen = 1.6; 	// set the threshold voltage for flex sensor here
+double threHoVolFlexSen = 1.8; 	// set the threshold voltage for flex sensor here
+// the following are for gyro data process
+unsigned char Re_buf[11],counter = 0;
+unsigned char sign = 0;
+float a[3], w[3], T;
+signed int angle[3];
+// global register for bluethooth communication
+unsigned char StatusReg = 0;
+/* End of Global Variable Declaration */
 
-#pragma interrupt UART_RXISR ipl6 vector 24
+#pragma interrupt UART_RXISR ipl6 vector 32
 void UART_RXISR(void)
 {
-	/*
-		Dealing with the data
-	*/
+	Re_buf[counter] = (unsigned char)U2RXREG;
+	IFS1bits.U2RXIF = 0;
+    if( counter == 0 && Re_buf[0] != 0x55 ) return;	// check if it is the start of the packet            
+    counter++;       
+    if( counter == 11 ) {	// receive 11 data 
+       counter = 0;               
+       sign = 1;
+    }  
+}
 
-	//IFS0bits.U2RXIF = 0;
+#pragma interrupt T4_ISR ipl7 vector 16
+void T4_ISR (void) {
+	T4CONCLR = 0x8000;		// STOP timer 4
+	T2CONCLR = 0x8000; 		// STOP Timer 2
+	OC1CONCLR = 0x8000;		// STOP OC1 module for PWM generation
+	IFS0CLR = 0x00010000;
 }
 
 /* main */
@@ -39,16 +68,50 @@ main() {
 	initIntGlobal();			
 	initUART();
 	ADC_init();							// initialize the ADC module
-	/*
-		initGyro();
-	*/
-
+	vibration_init();					// initialize the vibration unit
+	initGyro();
 	// infinite loop
 	while(1) {
 		flexSensor();
+		gyroSensor();
 	}
 }
 /* end of main */ 
+
+// initialize the vibration module
+void vibration_init(void) {
+	OC1CON = 0x0000; 			// stop OC1 module
+	OC1RS = 60;					// initialize duty cycle register
+	OC1R = 60;					// initialize OC1R register for the first time
+	OC1CON = 0x0006; 			// OC1 16-bit, Timer 2, in PWM mode w/o FP
+	PR2 = 0x00FF;				// PWM signal period = 0x100*1/PBCLK = 32 us  //Thus, PWM Frequency = 32.25 kHz
+	IFS0CLR = 0x0100;			// clear Timer 2 interrupt
+	//IEC0SET = 0x0100; 		// enable Timer 2 interrupt
+	//IPC2SET = 0x001C;			// Timer 2 interrupt priority 7, subpriority 0
+	Timer4_init();
+}
+
+// initialize timer4 in the vibration module
+void Timer4_init(void) {
+	IPC4SET = 0x0000001c; 
+	IFS0CLR = 0x00010000; 
+	IEC0SET = 0x00010000;
+	T4CON = 0x0; 
+	T4CONSET = 0x0010;
+	TMR4 = 0x0;
+	PR4 = 0x9c40; 	
+}
+
+void vibration_go(void) {
+	INTCONbits.MVEC = 0;	// disable multiple vector interrupt
+	T2CONSET = 0x8000;		// start Timer 2
+	OC1CONSET = 0x8000;		// enable OC1 module for PWM generation
+	T4CONSET = 0x8000;		// start timer 4
+}
+
+void vibration_stop(void) {
+	INTCONbits.MVEC = 1;	// Enable multiple vector interrupt
+}
 
 // send a char via bluetooth
 void BT_send(char c) {
@@ -56,6 +119,25 @@ void BT_send(char c) {
 	U1STAbits.UTXEN = 1;
 	U1TXREG = c;
 	IFS0bits.U1TXIF = 0;
+}
+
+void initGyro(char c) {
+	while (!IFS1bits.U2TXIF) {};
+	U2STAbits.UTXEN = 1;
+	U2TXREG = 0xFF;
+	IFS1bits.U2TXIF = 0;
+	while (!IFS1bits.U2TXIF) {};
+	U2STAbits.UTXEN = 1;
+	U2TXREG = 0xAA;
+	IFS1bits.U2TXIF = 0;
+	while (!IFS1bits.U2TXIF) {};
+	U2STAbits.UTXEN = 1;
+	U2TXREG = 0x52;
+	IFS1bits.U2TXIF = 0;
+	vibration_go();
+	int tmp = 10000000;
+	while (tmp--);
+	vibration_stop();
 }
 
 /*----------------------------------------------
@@ -77,30 +159,35 @@ void initUART(void) {
 	IFS0bits.U1TXIF = 0;
 	IEC0bits.U1TXIE = 1;
 	U1STAbits.UTXEN = 1;
-	/*
+	
 	U2BRG = BRATE_AS;
 	U2MODEbits.BRGH = 1;
-	U2STAbits.URXEN = 1;
 	U2STA = 0;
-	IFS0bits.U2RXIF = 0;
-	IEC0bits.U2RXIE = 1;
-	IPC6bits.U2IP = 6;
-	IPC6bits.U2IS = 3;
-	*/
+	U2STASET = 0x8000;
+	U2STAbits.UTXEN = 1;
+	U2STAbits.URXEN = 1;
+	IFS1bits.U2TXIF = 0;
+	IEC1bits.U2TXIF = 1;
+	IFS1bits.U2RXIF = 0;
+	IEC1bits.U2RXIE = 1;
+	IPC8bits.U2IP = 6;
+	IPC8bits.U2IS = 3;
+	
 	U1MODEbits.ON = 1;
-	//U2MODEbits.ON = 1;
+	U2MODEbits.ON = 1;
 
 	asm("ei");
 }
 
 // intialize the global configurations
-void initIntGlobal() {
-	DDPCONbits.JTAGEN = 0;
+void initIntGlobal() {	
+	DDPCONbits.JTAGEN = 0;	
+	TRISDSET = 0xffffffff;	// Set all ports to the input
+	TRISDCLR = 0x00000001;	// Set RD0 as output J11/PIN 19 for pwm vibration.
   	TRISFbits.TRISF2 = 1;	// RF2/U1RX/J11-41/input
 	TRISFbits.TRISF3 = 0;	// RF3/U1TX/J11-43/output
 	TRISFbits.TRISF4 = 1;	// RF2/U2RX/J11-46/input
 	TRISFbits.TRISF5 = 0;	// RF3/U2TX/J11-48/output
-	INTCONbits.MVEC = 1;	// Enable multiple vector interrupt
 	asm("ei"); 				// Enable all interrupts
 }
 
@@ -189,17 +276,15 @@ void flexSensor(void) {
 		findDoubleVol(totalMiddle/3, 0);
 
 		if ( lrClick(volIndex) == 1 )	// index finger click enabled
-			BT_send('I');
+			bitSet(&StatusReg, 0);
 		else
-			BT_send('J');
+			bitClr(&StatusReg, 0);
 		
 		if ( lrClick(volMiddle) == 1 )	// middle finger click enabled
-			BT_send('M');
+			bitSet(&StatusReg, 1);
 		else
-			BT_send('K');
-
-		BT_send('\n');
-	
+			bitClr(&StatusReg, 1);
+		BT_send(StatusReg);
 		i = 0;
 		volMiddle = 0;
 		volIndex = 0;
@@ -207,4 +292,94 @@ void flexSensor(void) {
 		totalMiddle = 0;
 	}
 
+}
+
+// dealing with the gyro data
+void gyroSensor(void) {
+	if ( sign == 1 ) {
+    	sign = 0;
+    	if ( Re_buf[0] == 0x55 ) {
+    		switch ( Re_buf[1] ) {
+    			case 0x51:
+					a[0] = ( (short)(Re_buf[3]<<8|Re_buf[2]) ) / 32768.0 * 16;
+					a[1] = ( (short)(Re_buf[5]<<8|Re_buf[4]) ) / 32768.0 * 16;
+					a[2] = ( (short)(Re_buf[7]<<8|Re_buf[6]) ) / 32768.0 * 16;
+					T = ( (short)(Re_buf[9]<<8|Re_buf[8]) ) / 340.0 + 36.25;
+					break;
+				case 0x52:
+					w[0] = ( (short)(Re_buf[3]<<8|Re_buf[2]) ) / 32768.0 * 2000;
+					w[1] = ( (short)(Re_buf[5]<<8|Re_buf[4]) ) / 32768.0 * 2000;
+					w[2] = ( (short)(Re_buf[7]<<8|Re_buf[6]) ) / 32768.0 * 2000;
+					T = ( (short)(Re_buf[9]<<8|Re_buf[8]) ) / 340.0 + 36.25;
+					break;
+				case 0x53:
+			        angle[0] = ( (short)(Re_buf[3]<<8|Re_buf[2]) ) / 32768.0 * 180;
+					angle[1] = ( (short)(Re_buf[5]<<8|Re_buf[4]) ) / 32768.0 * 180;
+					angle[2] = ( (short)(Re_buf[7]<<8|Re_buf[6]) ) / 32768.0 * 180;
+					T = ( (short)(Re_buf[9]<<8|Re_buf[8]) ) / 340.0 + 36.25;			
+	                break;
+	                /* 
+	                BT_send(Re_buf[3]);
+    				BT_send(Re_buf[2]);
+    				BT_send('\n');
+    				int first = int(angle[0])/100;
+    				int second = int(angle[0]-first*100) / 10;
+    				int third = int(angle[0])%10;
+    				BT_send(10+first);
+    				BT_send(10+second);
+    				BT_send(10+third);
+    				*/
+    		}
+    		if (angle[0] >= 0.0)
+    			bitClr(&StatusReg, 2);
+    		else
+    			bitSet(&StatusReg, 2);
+    		int tmp = angle[0]/LEVEL_ANGLE;
+			if (tmp < 0) tmp = tmp * -1;
+			if (tmp > 3) tmp = 3;
+    		switch(tmp) {
+    			case 0:
+    				bitClr(&StatusReg, 3);
+    				bitClr(&StatusReg, 4);
+    				break;
+    			case 1:
+    				bitSet(&StatusReg, 3);
+    				bitClr(&StatusReg, 4);
+					break;
+    			case 2:
+    				bitClr(&StatusReg, 3);
+    				bitSet(&StatusReg, 4);
+					break;
+    			case 3:
+    				bitSet(&StatusReg, 3);
+    				bitSet(&StatusReg, 4);
+					break;
+    		}
+    		if (angle[2] >= 0.0)
+    			bitClr(&StatusReg, 5);
+    		else
+    			bitSet(&StatusReg, 5);
+    		tmp = angle[2]/LEVEL_ANGLE;
+			if (tmp < 0) tmp = tmp * -1;
+			if (tmp > 3) tmp = 3;
+    		switch(tmp) {
+    			case 0:
+    				bitClr(&StatusReg, 6);
+    				bitClr(&StatusReg, 7);
+    				break;
+    			case 1:
+    				bitSet(&StatusReg, 6);
+    				bitClr(&StatusReg, 7);
+					break;
+    			case 2:
+    				bitClr(&StatusReg, 6);
+    				bitSet(&StatusReg, 7);
+					break;
+    			case 3:
+    				bitSet(&StatusReg, 6);
+    				bitSet(&StatusReg, 7);
+					break;
+    		}
+     	}
+    }
 }
