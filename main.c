@@ -4,7 +4,7 @@
 #define BRATE_BT 103 // 9600 Bd (BREGH=1)
 #define BRATE_AS 103 // 9600 Bd (BREGH=1)
 #define fabs(x) x>=0?x:-x
-#define MAX_ANGLE 80
+#define MAX_ANGLE 40
 #define LEVEL_ANGLE (MAX_ANGLE/4)
 
 /* Function prototypes */
@@ -14,6 +14,7 @@ void vibration_go(void);
 void BT_send(char c);
 void initUART(void);
 void initIntGlobal(void);
+void initGyro(void);
 void ADC_init (void);
 void findDoubleVol(int IntVoltage, int indic__);
 int lrClick(double inVol);
@@ -45,7 +46,7 @@ unsigned char StatusReg = 0;
 void UART_RXISR(void)
 {
 	Re_buf[counter] = (unsigned char)U2RXREG;
-	IFS1bits.U2RXIF = 0;
+	IFS1CLR = 0x0200;
     if( counter == 0 && Re_buf[0] != 0x55 ) return;	// check if it is the start of the packet            
     counter++;       
     if( counter == 11 ) {	// receive 11 data 
@@ -54,12 +55,12 @@ void UART_RXISR(void)
     }  
 }
 
-#pragma interrupt T4_ISR ipl7 vector 16
-void T4_ISR (void) {
-	T4CONCLR = 0x8000;		// STOP timer 4
+#pragma interrupt PWM_ISR ipl3 vector 8
+void PWM_ISR (void) {
 	T2CONCLR = 0x8000; 		// STOP Timer 2
 	OC1CONCLR = 0x8000;		// STOP OC1 module for PWM generation
-	IFS0CLR = 0x00010000;
+	IFS0CLR = 0x0100;
+	IEC0CLR = 0x0100;
 }
 
 /* main */
@@ -68,7 +69,8 @@ main() {
 	initIntGlobal();			
 	initUART();
 	ADC_init();							// initialize the ADC module
-	vibration_init();					// initialize the vibration unit
+	//vibration_init();					// initialize the vibration unit
+	//vibration_go();
 	initGyro();
 	// infinite loop
 	while(1) {
@@ -84,33 +86,19 @@ void vibration_init(void) {
 	OC1RS = 60;					// initialize duty cycle register
 	OC1R = 60;					// initialize OC1R register for the first time
 	OC1CON = 0x0006; 			// OC1 16-bit, Timer 2, in PWM mode w/o FP
-	PR2 = 0x00FF;				// PWM signal period = 0x100*1/PBCLK = 32 us  //Thus, PWM Frequency = 32.25 kHz
+	PR2 = 0xFFFF;				// PWM signal period = 0x100*1/PBCLK = 32 us  //Thus, PWM Frequency = 32.25 kHz
 	IFS0CLR = 0x0100;			// clear Timer 2 interrupt
-	//IEC0SET = 0x0100; 		// enable Timer 2 interrupt
-	//IPC2SET = 0x001C;			// Timer 2 interrupt priority 7, subpriority 0
-	Timer4_init();
-}
-
-// initialize timer4 in the vibration module
-void Timer4_init(void) {
-	IPC4SET = 0x0000001c; 
-	IFS0CLR = 0x00010000; 
-	IEC0SET = 0x00010000;
-	T4CON = 0x0; 
-	T4CONSET = 0x0010;
-	TMR4 = 0x0;
-	PR4 = 0x9c40; 	
+	IEC0SET = 0x0100; 		// enable Timer 2 interrupt
+	IPC2SET = 0x001C;			// Timer 2 interrupt priority 7, subpriority 0
 }
 
 void vibration_go(void) {
-	INTCONbits.MVEC = 0;	// disable multiple vector interrupt
 	T2CONSET = 0x8000;		// start Timer 2
 	OC1CONSET = 0x8000;		// enable OC1 module for PWM generation
-	T4CONSET = 0x8000;		// start timer 4
 }
 
 void vibration_stop(void) {
-	INTCONbits.MVEC = 1;	// Enable multiple vector interrupt
+	OC1RS = 0;
 }
 
 // send a char via bluetooth
@@ -118,26 +106,32 @@ void BT_send(char c) {
 	while (!IFS0bits.U1TXIF) {};
 	U1STAbits.UTXEN = 1;
 	U1TXREG = c;
-	IFS0bits.U1TXIF = 0;
+	IFS0CLR = 0x10000000;
 }
 
-void initGyro(char c) {
-	while (!IFS1bits.U2TXIF) {};
+void initGyro() {
+	PORTDbits.RD0 = 1;
+	int j = 100000;
+	while (j--);
+	PORTDbits.RD0 = 0;
+
+	//while (!IFS1bits.U2TXIF) {};
 	U2STAbits.UTXEN = 1;
 	U2TXREG = 0xFF;
-	IFS1bits.U2TXIF = 0;
-	while (!IFS1bits.U2TXIF) {};
+	//IFS1CLR = 0x0400;
+	//while (!IFS1bits.U2TXIF) {};
 	U2STAbits.UTXEN = 1;
 	U2TXREG = 0xAA;
-	IFS1bits.U2TXIF = 0;
-	while (!IFS1bits.U2TXIF) {};
+	//IFS1CLR = 0x0400;
+	//while (!IFS1bits.U2TXIF) {};
 	U2STAbits.UTXEN = 1;
 	U2TXREG = 0x52;
-	IFS1bits.U2TXIF = 0;
-	vibration_go();
-	int tmp = 10000000;
-	while (tmp--);
-	vibration_stop();
+	//IFS1CLR = 0x0400;
+
+	PORTDbits.RD0 = 1;
+	j = 100000;
+	while (j--);
+	PORTDbits.RD0 = 0;
 }
 
 /*----------------------------------------------
@@ -156,19 +150,19 @@ void initUART(void) {
 	U1STA = 0;
 	U1STASET = 0x8000;
 
-	IFS0bits.U1TXIF = 0;
+	IFS0CLR = 0x10000000;
 	IEC0bits.U1TXIE = 1;
 	U1STAbits.UTXEN = 1;
 	
 	U2BRG = BRATE_AS;
 	U2MODEbits.BRGH = 1;
 	U2STA = 0;
-	U2STASET = 0x8000;
-	U2STAbits.UTXEN = 1;
+	//U2STASET = 0x8000;   //FOR GYRO INIT
+	U2STAbits.UTXEN = 1; //FOR GYRO INIT
 	U2STAbits.URXEN = 1;
-	IFS1bits.U2TXIF = 0;
-	IEC1bits.U2TXIF = 1;
-	IFS1bits.U2RXIF = 0;
+	//IFS1CLR = 0x0400;		//FOR GYRO INIT
+	//IEC1bits.U2TXIE = 1;	//FOR GYRO INIT
+	IFS1CLR = 0x0200;
 	IEC1bits.U2RXIE = 1;
 	IPC8bits.U2IP = 6;
 	IPC8bits.U2IS = 3;
@@ -188,6 +182,8 @@ void initIntGlobal() {
 	TRISFbits.TRISF3 = 0;	// RF3/U1TX/J11-43/output
 	TRISFbits.TRISF4 = 1;	// RF2/U2RX/J11-46/input
 	TRISFbits.TRISF5 = 0;	// RF3/U2TX/J11-48/output
+	PORTDbits.RD0 = 0;
+	INTCONbits.MVEC = 1;	// Enable multiple vector interrupt
 	asm("ei"); 				// Enable all interrupts
 }
 
@@ -198,7 +194,7 @@ void ADC_init (void) {
 	AD1PCFG = 0xDFFF;			// set RB12/AN12 & RB13/AN13 as anolog input::other digital
 
 	// congfigure ADC controls
-	AD1CON1 = 0x2040;			/* Configure: No operation in IDLE mode, 
+	AD1CON1 = 0x20E0;			/* Configure: No operation in IDLE mode, 
 									integer 16-bit format,
 									timer3 period match, normal operation,
 									SSRC bit = 010 implies TMR3 period match --
@@ -220,16 +216,16 @@ void ADC_init (void) {
 								// Start from AN12 and alternate (start from lower)
 	
 	// configure timer 3
-	TMR3= 0x0000;
-	PR3= 0xC350;				// 50 ms (50000 cycles)
-	T3CON = 0x0040;				// 1 MHz (prescale set to 1:8) [now 1:64 should recalculate]
+	//TMR3= 0x0000;
+	//PR3= 0xC350;				// 50 ms (50000 cycles)
+	//T3CON = 0x0040;				// 1 MHz (prescale set to 1:8) [now 1:64 should recalculate]
 
 	// configure ADC interrupt
 								// AD1IP<2:0> bits IPC6<28:26> :: AD1IS<1:0> bits IPC6<25:24>
 	IFS1CLR = 0x0002;			// Clear ADC conversion interrupt
 	IEC1SET = 0x0002;			// Enable ADC interrupts
 
-	T3CONSET = 0x8000;			// turn on the TMR3
+	//T3CONSET = 0x8000;			// turn on the TMR3
 	AD1CON1SET = 0x8000;		// turn ON the ADC
 	AD1CON1SET = 0x0004;		// start auto sampling every 50 mSecs
 								// repeat continuously
